@@ -244,6 +244,7 @@
 
     function loadPaletteFromUrl(url) {
       const img = new Image();
+      img.crossOrigin = 'anonymous';
       img.onload = () => {
         const extracted = extractPalette(img, 12);
         if (extracted.length > 0) {
@@ -276,7 +277,7 @@
     });
 
     showSwatches();
-    loadPaletteFromUrl('caravaggio.jpg');
+    loadPaletteFromUrl('https://thumb.wikimedia.org/wikipedia/commons/thumb/6/64/Boy_with_a_Basket_of_Fruit-Caravaggio_%281593%29.jpg/500px-Boy_with_a_Basket_of_Fruit-Caravaggio_%281593%29.jpg');
 
     // Horizontal mouse position twists the stack: the bottom slab stays put,
     // the top slab turns by up to maxTwist radians.
