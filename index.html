@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rectangle Stack</title>
+  <title>rod-stack</title>
   <style>
     html, body {
       margin: 0;
@@ -52,6 +52,26 @@
       height: 16px;
       border-radius: 2px;
     }
+    #tilt-button {
+      display: none;
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 10px 16px;
+      border: 0;
+      border-radius: 4px;
+      background: #1f1f1f;
+      color: #ebebeb;
+      font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    @media (max-width: 600px) {
+      #palette-box { left: 8px; width: 120px; padding: 6px; }
+      #palette-box label { padding: 4px; }
+      #palette-preview { display: none !important; }
+      #palette-swatches span { width: 12px; height: 12px; }
+      .lil-gui.root { --width: 180px; }
+    }
   </style>
   <script type="importmap">
     {
@@ -69,6 +89,7 @@
     <img id="palette-preview" alt="">
     <div id="palette-swatches"></div>
   </div>
+  <button id="tilt-button">Tap to move with phone tilt</button>
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -156,7 +177,10 @@
 
     buildStack();
 
+    const isSmallScreen = matchMedia('(max-width: 600px)').matches;
+
     const gui = new GUI({ title: 'Stack' });
+    if (isSmallScreen) gui.close();
     const shape = gui.addFolder('Shape');
     shape.add(params, 'count', 1, 300, 1).onChange(buildStack);
     shape.add(params, 'width', 0.2, 10, 0.1).onChange(buildStack);
@@ -284,9 +308,40 @@
     let mouseX = 0;
     let mouseY = 0;
     addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse') return;
       mouseX = (e.clientX / innerWidth) * 2 - 1;
       mouseY = (e.clientY / innerHeight) * 2 - 1;
     });
+
+    // On phones, device tilt drives the same values: left/right tilt (gamma)
+    // twists the stack, forward/back tilt (beta) around a 45° hold tilts the camera.
+    const clamp = (v) => Math.max(-1, Math.min(1, v));
+    function onOrientation(e) {
+      if (e.gamma === null || e.beta === null) return;
+      mouseX = clamp(e.gamma / 45);
+      mouseY = clamp((e.beta - 45) / 45);
+    }
+
+    const isTouchDevice = matchMedia('(pointer: coarse)').matches;
+    const tiltButton = document.getElementById('tilt-button');
+    if (isTouchDevice && 'DeviceOrientationEvent' in window) {
+      // iOS only delivers orientation events after a permission prompt
+      // triggered by a user tap; other browsers deliver them straight away.
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        tiltButton.style.display = 'block';
+        tiltButton.addEventListener('click', async () => {
+          const state = await DeviceOrientationEvent.requestPermission().catch(() => 'denied');
+          if (state === 'granted') {
+            addEventListener('deviceorientation', onOrientation);
+            tiltButton.remove();
+          } else {
+            tiltButton.textContent = 'Tilt permission denied';
+          }
+        });
+      } else {
+        addEventListener('deviceorientation', onOrientation);
+      }
+    }
 
     // Vertical mouse position tilts the camera around the stack: top of the
     // screen looks down from above, bottom looks up from below.
@@ -296,11 +351,17 @@
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
 
-    addEventListener('resize', () => {
+    // Portrait screens show less horizontally, so pull the camera back to keep
+    // the stack's width in frame.
+    const baseDistance = camera.position.length();
+    function fitToScreen() {
       camera.aspect = innerWidth / innerHeight;
       camera.updateProjectionMatrix();
+      camera.position.setLength(baseDistance * Math.max(1, 0.9 / camera.aspect));
       renderer.setSize(innerWidth, innerHeight);
-    });
+    }
+    fitToScreen();
+    addEventListener('resize', fitToScreen);
 
     renderer.setAnimationLoop(() => {
       const { maxTwist, tiltEnabled, maxTilt, ease } = params;
