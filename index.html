@@ -16,7 +16,8 @@
     {
       "imports": {
         "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+        "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/",
+        "lil-gui": "https://unpkg.com/lil-gui@0.19.2/dist/lil-gui.esm.min.js"
       }
     }
   </script>
@@ -25,12 +26,19 @@
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import GUI from 'lil-gui';
 
-    const COUNT = 50;
-    const WIDTH = 3;
-    const DEPTH = 3;
-    const HEIGHT = 0.1;
-    const GAP = 0.02;
+    const params = {
+      count: 50,
+      width: 3,
+      depth: 3,
+      height: 0.1,
+      gap: 0.02,
+      maxTwist: Math.PI / 2,
+      tiltEnabled: false,
+      maxTilt: 0.6,
+      ease: 0.08,
+    };
 
     // Sampled from the reference photo of the painted stack.
     const PALETTE = [
@@ -65,23 +73,58 @@
     sun.position.set(5, 10, 4);
     scene.add(sun);
 
-    const geometry = new THREE.BoxGeometry(WIDTH, HEIGHT, DEPTH);
-    const stackHeight = COUNT * (HEIGHT + GAP);
-    const slabs = [];
+    const randomColor = () => PALETTE[Math.floor(Math.random() * PALETTE.length)];
 
-    for (let i = 0; i < COUNT; i++) {
-      const color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
-      const material = new THREE.MeshStandardMaterial({ color });
-      const box = new THREE.Mesh(geometry, material);
-      box.position.y = i * (HEIGHT + GAP) - stackHeight / 2;
-      scene.add(box);
-      slabs.push(box);
+    // One color per slab index, kept across rebuilds so resizing doesn't reshuffle.
+    const colors = [];
+    const slabs = [];
+    let geometry = null;
+
+    function buildStack() {
+      for (const slab of slabs) {
+        scene.remove(slab);
+        slab.material.dispose();
+      }
+      slabs.length = 0;
+      geometry?.dispose();
+
+      const { count, width, depth, height, gap } = params;
+      geometry = new THREE.BoxGeometry(width, height, depth);
+      const stackHeight = count * (height + gap);
+
+      for (let i = 0; i < count; i++) {
+        colors[i] ??= randomColor();
+        const material = new THREE.MeshStandardMaterial({ color: colors[i] });
+        const box = new THREE.Mesh(geometry, material);
+        box.position.y = i * (height + gap) - stackHeight / 2;
+        scene.add(box);
+        slabs.push(box);
+      }
     }
 
+    function shuffleColors() {
+      colors.length = 0;
+      buildStack();
+    }
+
+    buildStack();
+
+    const gui = new GUI({ title: 'Stack' });
+    const shape = gui.addFolder('Shape');
+    shape.add(params, 'count', 1, 300, 1).onChange(buildStack);
+    shape.add(params, 'width', 0.2, 10, 0.1).onChange(buildStack);
+    shape.add(params, 'depth', 0.2, 10, 0.1).onChange(buildStack);
+    shape.add(params, 'height', 0.01, 1, 0.01).onChange(buildStack);
+    shape.add(params, 'gap', 0, 0.5, 0.005).onChange(buildStack);
+    shape.add({ shuffleColors }, 'shuffleColors').name('shuffle colors');
+    const motion = gui.addFolder('Motion');
+    motion.add(params, 'maxTwist', 0, Math.PI * 2, 0.01).name('max twist');
+    motion.add(params, 'tiltEnabled').name('camera tilt');
+    motion.add(params, 'maxTilt', 0, 1.5, 0.01).name('max tilt');
+    motion.add(params, 'ease', 0.01, 1, 0.01);
+
     // Horizontal mouse position twists the stack: the bottom slab stays put,
-    // the top slab turns by up to MAX_TWIST radians.
-    const MAX_TWIST = Math.PI / 2;
-    const EASE = 0.08;
+    // the top slab turns by up to maxTwist radians.
     let mouseX = 0;
     let mouseY = 0;
     addEventListener('pointermove', (e) => {
@@ -91,7 +134,6 @@
 
     // Vertical mouse position tilts the camera around the stack: top of the
     // screen looks down from above, bottom looks up from below.
-    const MAX_TILT = 0.6;
     const cameraOffset = new THREE.Vector3();
     const cameraSpherical = new THREE.Spherical();
 
@@ -105,17 +147,21 @@
     });
 
     renderer.setAnimationLoop(() => {
+      const { maxTwist, tiltEnabled, maxTilt, ease } = params;
+
       slabs.forEach((slab, i) => {
-        const target = mouseX * MAX_TWIST * (i / (COUNT - 1));
-        slab.rotation.y += (target - slab.rotation.y) * EASE;
+        const target = mouseX * maxTwist * (i / Math.max(slabs.length - 1, 1));
+        slab.rotation.y += (target - slab.rotation.y) * ease;
       });
 
-      cameraOffset.subVectors(camera.position, controls.target);
-      cameraSpherical.setFromVector3(cameraOffset);
-      const targetPhi = Math.PI / 2 + mouseY * MAX_TILT;
-      cameraSpherical.phi += (targetPhi - cameraSpherical.phi) * EASE;
-      cameraOffset.setFromSpherical(cameraSpherical);
-      camera.position.copy(controls.target).add(cameraOffset);
+      if (tiltEnabled) {
+        cameraOffset.subVectors(camera.position, controls.target);
+        cameraSpherical.setFromVector3(cameraOffset);
+        const targetPhi = Math.PI / 2 + mouseY * maxTilt;
+        cameraSpherical.phi += (targetPhi - cameraSpherical.phi) * ease;
+        cameraOffset.setFromSpherical(cameraSpherical);
+        camera.position.copy(controls.target).add(cameraOffset);
+      }
 
       controls.update();
       renderer.render(scene, camera);
