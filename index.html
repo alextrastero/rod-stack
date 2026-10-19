@@ -305,7 +305,9 @@
 
     // Horizontal mouse position twists the stack: the bottom slab stays put,
     // the top slab turns by up to maxTwist radians.
-    let mouseX = 0;
+    // Starts as if the mouse were three-quarters across the screen, so the
+    // stack is already twisted before any input.
+    let mouseX = 0.5;
     let mouseY = 0;
     addEventListener('pointermove', (e) => {
       if (e.pointerType !== 'mouse') return;
